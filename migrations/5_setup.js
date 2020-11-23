@@ -1,5 +1,5 @@
 const TMEHatchery = artifacts.require('./TMEHatchery.sol')
-const TMETraitOracle = artifacts.require('./TMETraitOracle.sol')
+const TMETraitOracle2 = artifacts.require('./TMETraitOracle2.sol')
 require('dotenv').config()
 
 module.exports = async (deployer, network, accounts) => {
@@ -7,8 +7,8 @@ module.exports = async (deployer, network, accounts) => {
 
   console.log('deploying from:' + deployAddress)
   const tmeHatchery = await TMEHatchery.deployed();
-  const tmeTraitOracle = await TMETraitOracle.deployed();
+  const tmeTraitOracle2 = await TMETraitOracle2.deployed();
 
-  await tmeHatchery.setTraitOracle(tmeTraitOracle.address);
+  await tmeHatchery.setTraitOracle(tmeTraitOracle2.address);
   
 }

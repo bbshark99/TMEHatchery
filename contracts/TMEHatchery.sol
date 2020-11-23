@@ -34,8 +34,9 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
 
     Incubation[] public incubations;
     mapping(address => uint8) public ownerToNumIncubations;
+    mapping(address => uint8) public ownerToNumActiveIncubations;
     mapping(address => uint256[]) public ownerToIds;
-
+    uint256 public maxActiveIncubationsPerUser = 2;
 
     uint256 public inbucateDurationInSecs = 24 * 3600;
     uint256 public blocksTilColor = 2880; // 12h / 15secs per block
@@ -46,10 +47,14 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     // 5% of 256 = 12.8, round down to 12.
     // 0 - 11 -> hatching failed.
     // exact failure chance = 12/256 = 4.68 percent
+    // 12 - 255 inclusive = success
+    // 0-11 inclusive = fail
     uint8 public HATCH_THRESHOLD = 12;
 
     uint256 tmePerIncubate = 1 ether;
     uint256 tmeReturnOnFail = 0.2 ether;
+
+    address public BURN_ADDRESS = address(1);
 
     event IncubationStarted(address owner, uint256 startTime, uint256 endTime);
     event FailedHatch(address indexed owner, uint256 hatchId);
@@ -79,6 +84,7 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     // always results in incubation of 1 egg.
     function startIncubate() public whenNotPausedIncubate nonReentrant{
         require (tme.balanceOf(msg.sender) >= tmePerIncubate, "Not enough TME");
+        require (maxActiveIncubationsPerUser == 0 || ownerToNumActiveIncubations[msg.sender] < maxActiveIncubationsPerUser, "Max active incubations exceed");
         require (tme.transferFrom(address(msg.sender), address(this), tmePerIncubate), "Failed to transfer TME");
         uint256 newId = incubations.length;
         uint256 targetBlock = block.number + inbucateDurationInSecs.div(secsPerBlock) - 20; //buffer to make sure target block is earlier than end timestamp
@@ -94,11 +100,14 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
             false,
             0
         );
+        traitOracle.registerSeedForIncubation(targetBlock, msg.sender, block.timestamp, newId);
+
         incubations.push(incubation);
         ownerToNumIncubations[msg.sender] = ownerToNumIncubations[msg.sender] + 1;
         ownerToIds[msg.sender].push(newId);
+        ownerToNumActiveIncubations[msg.sender] += 1;
 
-        require(incubations[newId].id == newId, "Sanity check for using id as arr index");
+        // require(incubations[newId].id == newId, "Sanity check for using id as arr index");
 
         emit IncubationStarted(msg.sender, block.timestamp, endTime);
     }
@@ -106,38 +115,50 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     function getTotalIncubations() public view returns (uint256){
         return incubations.length;
     }
-    function getNumIncubations(address owner) public view returns (uint8){
-        return ownerToNumIncubations[owner];
-    }
+    
+    // as only the last 256 blockhashes are available, the resulting randomN changes every 256 blocks;
     function getColorBlockHash(uint256 id) public view returns (uint256) {
         require (id < incubations.length, "invalid id");
         Incubation memory toHatch = incubations[id];
         require (toHatch.startBlock + blocksTilColor < block.number, "wait more blocks");
-        uint256 randomN = uint256(blockhash(toHatch.startBlock + blocksTilColor));
+        uint256 randomN = traitOracle.getColorRandomN(toHatch.startBlock + blocksTilColor, toHatch.id);
+        
         return randomN;
-
     }
     // called by backend to find out hatch result
+    // as only the last 256 blockhashes are available, the resulting randomN changes every 256 blocks;
     function getResultOfIncubation(uint256 id) public view returns (bool, uint256){
         require (id < incubations.length, "invalid id");
 
         Incubation memory toHatch = incubations[id];
         require (toHatch.targetBlock <= block.number, "not reached block");
-        uint256 randomN = traitOracle.getRandomN(toHatch.targetBlock, toHatch.owner, toHatch.startTimestamp, toHatch.id);
+        uint256 randomN = traitOracle.getRandomN(toHatch.targetBlock, toHatch.id);
         bool success = (_sliceNumber(randomN, SUCCESS_BIT_WIDTH, SUCCESS_OFFSET) >= HATCH_THRESHOLD);
         uint256 randomN2 = uint256(keccak256(abi.encodePacked(randomN)));
         uint256 traits = getTraitsFromRandom(randomN2);
 
         return (success, traits);
     }
+    // 5 10 20 40 60 80
+    // function getHatchThresholdPenalized(uint targetBlock) public view returns (uint256){
+    //     require (targetBlock <= block.number, "not reached target block yet");
+    //     uint256 diff = block.number.sub(targetBlock);
+    //     // find number of 256 cycles that have passed.
+    //     uint256 threshold = uint256(HATCH_THRESHOLD).mul(1 + (diff >> 8));
+    //     if (threshold > 255){
+    //         threshold = 255;
+    //     }
+    //     return threshold;
+    // }
+
     function getSuccessIncubation(uint256 id) public view returns (bool, uint256){
         require (id < incubations.length, "invalid id");
 
         Incubation memory toHatch = incubations[id];
         require (toHatch.targetBlock <= block.number, "not reached block");
-        uint256 randomN = traitOracle.getRandomN(toHatch.targetBlock, toHatch.owner, toHatch.startTimestamp, toHatch.id);
+        uint256 randomN = traitOracle.getRandomN(toHatch.targetBlock, toHatch.id);
         bool success = (_sliceNumber(randomN, SUCCESS_BIT_WIDTH, SUCCESS_OFFSET) >= HATCH_THRESHOLD);
-       
+
         return (success, randomN);
     }
     // a separate backend function running on the cloud prepares the tamag metadata, uploads on ipfs, and gives the tokenURI
@@ -154,18 +175,23 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
 
         (bool success, uint256 randomN) = getSuccessIncubation(toHatch.id);
         toHatch.hatched = true;
+        ownerToNumActiveIncubations[toHatch.owner] -= 1;
+
         if (!success){
             toHatch.failed = true;
             // sanity check that frontend got same success result;
-            require (v==0 && r==0 && s==0, "Sanity check failed");
+            // require (v==0 && r==0 && s==0, "Sanity check failed");
             emit FailedHatch(toHatch.owner, toHatch.id);
             incubations[id] = toHatch;
             if (tmeReturnOnFail > 0){
                 tme.safeTransfer(toHatch.owner, tmeReturnOnFail);
             }
+            tme.safeTransfer(BURN_ADDRESS, tmePerIncubate.sub(tmeReturnOnFail));
+
         } else {
             toHatch.failed = false;
             emit SuccessfulHatch(toHatch.owner, toHatch.id);
+            tme.safeTransfer(BURN_ADDRESS, tmePerIncubate);
 
             uint256 randomN2 = uint256(keccak256(abi.encodePacked(randomN)));
             uint256 traits = getTraitsFromRandom(randomN2);
@@ -241,7 +267,9 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     function setTraitOracle(address _a) public onlyOwner {
         traitOracle = ITMETraitOracle(_a);
     }
-
+    function setMaxActiveIncubationsPerUser(uint256 num) public onlyOwner {
+        maxActiveIncubationsPerUser = num;
+    }
     // emergency function so things don't get stuck inside contract
     function emergencyWithdrawEth() public onlyOwner {
         uint256 b = address(this).balance;
@@ -252,4 +280,5 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
         uint256 tokenBalance = tme.balanceOf(address(this));
         tme.safeTransfer(owner(), tokenBalance);
     }
+    
 }

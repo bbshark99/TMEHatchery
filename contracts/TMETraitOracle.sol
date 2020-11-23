@@ -4,6 +4,7 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./ITMETraitSource.sol";
 
 // random oracle following cryptokitties GeneScience contract
+// https://etherscan.io/address/0xb77feddb7e627a78140a2a32cac65a49ed1dba8e#code
 contract TMETraitOracle is Ownable{
     using SafeMath for uint256;
 
