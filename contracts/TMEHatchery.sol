@@ -52,7 +52,7 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     uint8 public HATCH_THRESHOLD = 12;
 
     uint256 tmePerIncubate = 1 ether;
-    uint256 tmeReturnOnFail = 0.2 ether;
+    uint256 tmeReturnOnFail = 0 ether;
 
     address public BURN_ADDRESS = address(1);
 
@@ -68,18 +68,11 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
         addTrait("CHEERFULNESS",5,0,true);
         addTrait("ENERGY",5,5,true);
         addTrait("METABOLISM",5,10,true);
+
+        pauseIncubate();
     }
 
-    function setSignerAddress(address _signerAddress) public onlyOwner {
-        signerAddress = _signerAddress;
-    }
-
-    function setTmePerIncubate(uint256 amt) public onlyOwner {
-        tmePerIncubate = amt;
-    }
-    function setTmeReturnOnFail(uint256 amt) public onlyOwner {
-        tmeReturnOnFail = amt;
-    }
+   
 
     // always results in incubation of 1 egg.
     function startIncubate() public whenNotPausedIncubate nonReentrant{
@@ -103,7 +96,7 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
         traitOracle.registerSeedForIncubation(targetBlock, msg.sender, block.timestamp, newId);
 
         incubations.push(incubation);
-        ownerToNumIncubations[msg.sender] = ownerToNumIncubations[msg.sender] + 1;
+        ownerToNumIncubations[msg.sender] += 1;
         ownerToIds[msg.sender].push(newId);
         ownerToNumActiveIncubations[msg.sender] += 1;
 
@@ -116,9 +109,9 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
         return incubations.length;
     }
     
-    // as only the last 256 blockhashes are available, the resulting randomN changes every 256 blocks;
     function getColorBlockHash(uint256 id) public view returns (uint256) {
         require (id < incubations.length, "invalid id");
+
         Incubation memory toHatch = incubations[id];
         require (toHatch.startBlock + blocksTilColor < block.number, "wait more blocks");
         uint256 randomN = traitOracle.getColorRandomN(toHatch.startBlock + blocksTilColor, toHatch.id);
@@ -126,12 +119,11 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
         return randomN;
     }
     // called by backend to find out hatch result
-    // as only the last 256 blockhashes are available, the resulting randomN changes every 256 blocks;
     function getResultOfIncubation(uint256 id) public view returns (bool, uint256){
         require (id < incubations.length, "invalid id");
 
         Incubation memory toHatch = incubations[id];
-        require (toHatch.targetBlock <= block.number, "not reached block");
+        require (toHatch.targetBlock < block.number, "not reached block");
         uint256 randomN = traitOracle.getRandomN(toHatch.targetBlock, toHatch.id);
         bool success = (_sliceNumber(randomN, SUCCESS_BIT_WIDTH, SUCCESS_OFFSET) >= HATCH_THRESHOLD);
         uint256 randomN2 = uint256(keccak256(abi.encodePacked(randomN)));
@@ -139,23 +131,12 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
 
         return (success, traits);
     }
-    // 5 10 20 40 60 80
-    // function getHatchThresholdPenalized(uint targetBlock) public view returns (uint256){
-    //     require (targetBlock <= block.number, "not reached target block yet");
-    //     uint256 diff = block.number.sub(targetBlock);
-    //     // find number of 256 cycles that have passed.
-    //     uint256 threshold = uint256(HATCH_THRESHOLD).mul(1 + (diff >> 8));
-    //     if (threshold > 255){
-    //         threshold = 255;
-    //     }
-    //     return threshold;
-    // }
 
     function getSuccessIncubation(uint256 id) public view returns (bool, uint256){
         require (id < incubations.length, "invalid id");
 
         Incubation memory toHatch = incubations[id];
-        require (toHatch.targetBlock <= block.number, "not reached block");
+        require (toHatch.targetBlock < block.number, "not reached block");
         uint256 randomN = traitOracle.getRandomN(toHatch.targetBlock, toHatch.id);
         bool success = (_sliceNumber(randomN, SUCCESS_BIT_WIDTH, SUCCESS_OFFSET) >= HATCH_THRESHOLD);
 
@@ -175,7 +156,10 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
 
         (bool success, uint256 randomN) = getSuccessIncubation(toHatch.id);
         toHatch.hatched = true;
-        ownerToNumActiveIncubations[toHatch.owner] -= 1;
+
+        if (ownerToNumActiveIncubations[toHatch.owner] > 0){
+            ownerToNumActiveIncubations[toHatch.owner] -= 1;
+        } 
 
         if (!success){
             toHatch.failed = true;
@@ -237,6 +221,17 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     }
 
     /* setters */
+    function setSignerAddress(address _signerAddress) public onlyOwner {
+        signerAddress = _signerAddress;
+    }
+
+    function setTmePerIncubate(uint256 amt) public onlyOwner {
+        tmePerIncubate = amt;
+    }
+    function setTmeReturnOnFail(uint256 amt) public onlyOwner {
+        tmeReturnOnFail = amt;
+    }
+
     function setIncubateDurationInSecs(uint256 secs) public onlyOwner{
         inbucateDurationInSecs = secs;
     }
@@ -270,6 +265,7 @@ contract TMEHatchery is Ownable, ReentrancyGuard, TMEAccessControl, TMETraitSour
     function setMaxActiveIncubationsPerUser(uint256 num) public onlyOwner {
         maxActiveIncubationsPerUser = num;
     }
+    
     // emergency function so things don't get stuck inside contract
     function emergencyWithdrawEth() public onlyOwner {
         uint256 b = address(this).balance;

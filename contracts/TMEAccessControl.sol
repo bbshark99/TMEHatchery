@@ -16,7 +16,7 @@ contract TMEAccessControl is Ownable{
         _;
     }
 
-    function pauseHatch() external onlyOwner whenNotPausedHatch {
+    function pauseHatch() public onlyOwner whenNotPausedHatch {
         pausedHatch = true;
     }
 
@@ -36,7 +36,7 @@ contract TMEAccessControl is Ownable{
         _;
     }
 
-    function pauseIncubate() external onlyOwner whenNotPausedIncubate {
+    function pauseIncubate() public onlyOwner whenNotPausedIncubate {
         pausedIncubate = true;
     }
 
