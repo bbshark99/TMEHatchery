@@ -32,7 +32,8 @@ module.exports = {
         ),
         skipDryRun: true,
       network_id: 4,
-      gas: 6800000 // Gas limit used for deploys
+      gas: 6800000, // Gas limit used for deploys
+      gasPrice: web3.utils.toWei('100', 'gwei') // 100 gwei
     },
 
     ropsten: {
@@ -54,13 +55,13 @@ module.exports = {
       provider: () =>
         new HDWalletProvider(
           MAINNET_KEY,
-          'http://localhost:6666'
-          // 'https://mainnet.infura.io/v3/' + INFURA_API_KEY
+          // 'http://localhost:6666'
+          'https://mainnet.infura.io/v3/' + INFURA_API_KEY
         ),
       network_id: 1,
       gas: 10000000,
       skipDryRun: true,
-      gasPrice: String(web3.utils.toWei('80', 'gwei'))
+      gasPrice: String(web3.utils.toWei('30', 'gwei'))
     }
   },
   compilers: {

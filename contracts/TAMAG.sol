@@ -18,7 +18,7 @@ contract TAMAG is ERC721, TAMAGProperties, ERC721Burnable, Ownable{
     modifier onlyHatchery() {
         require((_msgSender() == owner()) || (hatchery == address(0))|| (_msgSender() == hatchery), "Only owner or hatchery");
         _;
-    }
+}
     
     constructor(address _signerAddress) public ERC721("TAMAG NiftyGotchi", "TAMAG") TAMAGProperties() {
         signerAddress = _signerAddress;

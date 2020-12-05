@@ -1,20 +1,22 @@
 const TMEHatchery = artifacts.require('./TMEHatchery.sol')
 const TAMAG = artifacts.require('./TAMAG.sol')
+const TMEStats = artifacts.require('./TMEStats.sol')
+// const TMETraitOracle = artifacts.require('./TMETraitOracle.sol')
 require('dotenv').config()
 
 module.exports = async (deployer, network, accounts) => {
-  console.log(accounts)
   let deployAddress = accounts[0] // by convention
-  console.log('Preparing for deployment of TMEHatchery...')
+  console.log('Preparing for deployment of TMEStats...')
 
   console.log('deploying from:' + deployAddress)
+  const tmeHatchery = await TMEHatchery.deployed();
   // const tme = "0x6E742E29395Cf5736c358538f0f1372AB3dFE731"; // mainnet
   const tme = "0x871d72C888B7d92686E01e48F6F06FFB11EEe9B5"; //rinkeby
-  const signer = "0x8EF9A1A12e0B7E92f11d112f51Ae1054Ddc0E37D"; //tamasigner
   const tamag = await TAMAG.deployed();
-  console.log("tamag",tamag.address)
 
-  await deployer.deploy(TMEHatchery, tme, tamag.address, signer, {
+  await deployer.deploy(TMEStats, tmeHatchery.address, tme, tamag.address, {
     from: deployAddress
   })
+
+
 }
